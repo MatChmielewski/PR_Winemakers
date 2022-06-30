@@ -97,27 +97,29 @@ int main(int argc, char *argv[]) {
         isSpotFree[i] = 1;
     }
     int wineAmount = 0;
-    int selectedSpot;
+    int selectedSpot = -1;
     int lamportClock = 0;
     int ackCounter = 0;
+    int requestFlag = 0;
 
     packet myPacket;
 
     //if (safeSpots != nullptr) std::cout << "Array created!\n";
 
     int i = 0;
-    while(i < 5) {
+    while(i < 15) {
 
         //std::cout << "My rank is: " << rank << " from " << size << " safeSpotSize: " << safeSpotSize << std::endl;
 
         if (wineAmount == 0) wineAmount = genWine(&lamportClock, rank);
-        selectedSpot = chooseSpot(&lamportClock, rank, safeSpotSize);
+        if (selectedSpot == -1) selectedSpot = chooseSpot(&lamportClock, rank, safeSpotSize);
 
         if (rank < numWineMakers) {
 
-            if (safeSpots[selectedSpot] == 0) {
+            if (selectedSpot != -1 && safeSpots[selectedSpot] == 0 && isSpotFree[selectedSpot] == 1 && requestFlag == 0) {
                 send(&lamportClock, REQUEST, selectedSpot, wineAmount, 0, rank);
-                safeSpots[selectedSpot] = 1;
+                requestFlag = 1;
+                //safeSpots[selectedSpot] = 1;  ??? wut
             }
 
             myPacket = recv(&lamportClock);
@@ -132,11 +134,16 @@ int main(int argc, char *argv[]) {
                 std::cout << "  Winemaker " << myPacket.status.source << " wants place no. " << myPacket.msg.spot.spotId << std::endl;
                 if (myPacket.msg.spot.spotId != selectedSpot) {
                     send(&lamportClock, ACK, myPacket.msg.spot.spotId, 0, myPacket.status.source, rank);
-                }
+                    isSpotFree[myPacket.msg.spot.spotId] = 0;
+                    lamportClock++;
+                } 
+                // TODO: rywalizacja o to samo miejsce
+
                 break;
             case ACK:
                 if (myPacket.msg.spot.spotId == selectedSpot) ackCounter++;
-                std::cout << "  Got ACK from " << myPacket.status.source << " regarding spot " << myPacket.msg.spot.spotId << std::endl;
+                std::cout << "  Got ACK from " << myPacket.status.source << " regarding spot " << myPacket.msg.spot.spotId 
+                            << ". Current ACKs: " << ackCounter << std::endl;
                 break;
             case RESPONSE:
                 /* code */
@@ -144,6 +151,12 @@ int main(int argc, char *argv[]) {
             case RELEASE:
                 /* code */    
                 break;
+            }
+
+            if (ackCounter == numWineMakers) {
+                send(&lamportClock, RELEASE, selectedSpot, wineAmount, 0, rank);
+                safeSpots[selectedSpot] = wineAmount;
+                std::cout << "  Going to spot " << selectedSpot << " with " << wineAmount << " wine units.\n";
             }
 
             std::cout << "  clock: " << lamportClock << std::endl;
