@@ -105,9 +105,9 @@ int main(int argc, char *argv[]) {
     packet myPacket;
 
     //if (safeSpots != nullptr) std::cout << "Array created!\n";
-
+    std::cout << "NumWIneMakers: " << numWineMakers << std::endl;
     int i = 0;
-    while(i < 15) {
+    while(i < 6) {
 
         //std::cout << "My rank is: " << rank << " from " << size << " safeSpotSize: " << safeSpotSize << std::endl;
 
@@ -149,13 +149,33 @@ int main(int argc, char *argv[]) {
                 /* code */
                 break;
             case RELEASE:
-                /* code */    
+                if (myPacket.msg.spot.wineAmount > 0) {
+                    isSpotFree[myPacket.msg.spot.spotId] = 0;
+                    safeSpots[myPacket.msg.spot.spotId] = myPacket.msg.spot.wineAmount;
+                    lamportClock+=2;
+
+                    if (myPacket.status.source < numWineMakers) {
+                         std::cout << "      Winemaker " << myPacket.status.source << " is in spot " << myPacket.msg.spot.spotId
+                            << " with " << myPacket.msg.spot.wineAmount << " wine units\n";  
+                    } else {
+                        std::cout << "      Student " << myPacket.status.source << " bought wine from spot " << myPacket.msg.spot.spotId << std::endl; 
+                    }
+                    
+                } else {
+                    isSpotFree[myPacket.msg.spot.spotId] = 1;
+                    safeSpots[myPacket.msg.spot.spotId] = 0;
+                    lamportClock+=2;
+
+                    std::cout << "      Student " << myPacket.status.source << " emptied spot " << myPacket.msg.spot.spotId << std::endl; 
+                }
+                
                 break;
             }
 
-            if (ackCounter == numWineMakers) {
+            if (ackCounter == numWineMakers -1 ) {
                 send(&lamportClock, RELEASE, selectedSpot, wineAmount, 0, rank);
                 safeSpots[selectedSpot] = wineAmount;
+                lamportClock++;
                 std::cout << "  Going to spot " << selectedSpot << " with " << wineAmount << " wine units.\n";
             }
 
