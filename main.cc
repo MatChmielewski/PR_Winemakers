@@ -20,7 +20,7 @@ void send(int *clock, int msgType, int spotId, int amount, int dest, int src) {
     {
     case REQUEST:
         msg.clock = *clock;
-        msg.spot.spotId =spotId;
+        msg.spot.spotId = spotId;
         msg.spot.wineAmount = 0;
         for (int i = 0; i < numWineMakers; i++) {
             if(i != src){
@@ -30,7 +30,7 @@ void send(int *clock, int msgType, int spotId, int amount, int dest, int src) {
         break;
     case ACK:
         msg.clock = *clock;
-        msg.spot.spotId =spotId;
+        msg.spot.spotId = spotId;
         msg.spot.wineAmount = 0;
         MPI_Send( &msg , sizeof(msg) , MPI_BYTE , dest , ACK , MPI_COMM_WORLD);
         break;
@@ -39,7 +39,7 @@ void send(int *clock, int msgType, int spotId, int amount, int dest, int src) {
         break;
     case RELEASE:
         msg.clock = *clock;
-        msg.spot.spotId =spotId;
+        msg.spot.spotId = spotId;
         msg.spot.wineAmount = amount;
         for (int i = 0; i < size; i++) {
             if(i != src){

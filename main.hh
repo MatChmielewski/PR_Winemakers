@@ -29,7 +29,7 @@ struct message {int clock; safeSpot spot;};
 struct msgStatus {int source; int tag;};
 struct packet {message msg; msgStatus status;};
 
-int genWine(int rank);
+int genWine(int * clock, int rank);
 void send(int *clock, int msgType, int spotId, int amount, int dest, int src);
 packet recv(int *clock);
-int chooseSpot(int rank, int numSpaces);
+int chooseSpot(int * clock, int rank, int numSpaces);
