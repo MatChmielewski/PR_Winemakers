@@ -12,7 +12,7 @@
 #define RELEASE 40
 
 #define WINE_LIMIT 20
-#define SAFESPOTS 6
+#define SAFESPOTS 3
 
 int rank;
 int size;
@@ -30,6 +30,7 @@ struct msgStatus {int source; int tag;};
 struct packet {message msg; msgStatus status;};
 
 int genWine(int rank);
-void send(int *clock, int msgType, int spotId, int amount, int dest, int src);
+void send(int *clock, int msgType, int spotId, int amount, int dest, int src, int lowerlimit, int upperlimit);
 packet recv(int *clock);
 int chooseSpot(int rank, int numSpaces);
+int compareClocks(int *selfClock, int *recvClock, int currentProc, int recvProc);

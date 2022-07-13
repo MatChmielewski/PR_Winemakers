@@ -12,7 +12,19 @@ int chooseSpot(int *clock, int rank, int numSpaces) {
     return rand() % numSpaces;    
 }
 
-void send(int *clock, int msgType, int spotId, int amount, int dest, int src) {
+int compareClocks(int *selfClock, int *recvClock, int currentProc, int recvProc){
+    std::cout << "      my (" << currentProc <<  ") clock: " << *selfClock << " recv (" << recvProc << ") clock: " << *recvClock << "\n";
+    if (*selfClock < *recvClock) { *selfClock += 1; return -1; }
+    if (*selfClock > *recvClock) { *selfClock += 1; return 1; }
+    if (*selfClock == *recvClock){
+        *selfClock += 1;
+        if (currentProc < recvProc) return 1;
+        else return -1;
+    }
+    return 0;
+}
+
+void send(int *clock, int msgType, int spotId, int amount, int dest, int src, int lowerlimit, int upperlimit) {
     safeSpot spot {.spotId = spotId, .wineAmount = amount};
     message msg {.clock = *clock, .spot = spot};
     *clock+=1;
@@ -22,7 +34,7 @@ void send(int *clock, int msgType, int spotId, int amount, int dest, int src) {
         msg.clock = *clock;
         msg.spot.spotId =spotId;
         msg.spot.wineAmount = 0;
-        for (int i = 0; i < numWineMakers; i++) {
+        for (int i = lowerlimit; i < upperlimit; i++) {
             if(i != src){
                 MPI_Send( &msg , sizeof(msg) , MPI_BYTE , i , REQUEST , MPI_COMM_WORLD);
             }  
@@ -35,13 +47,17 @@ void send(int *clock, int msgType, int spotId, int amount, int dest, int src) {
         MPI_Send( &msg , sizeof(msg) , MPI_BYTE , dest , ACK , MPI_COMM_WORLD);
         break;
     case RESPONSE:
-        /* code */
+        msg.clock = *clock;
+        msg.spot.spotId =spotId;
+        msg.spot.wineAmount = 0;
+        MPI_Send( &msg , sizeof(msg) , MPI_BYTE , dest , RESPONSE , MPI_COMM_WORLD);
+        std::cout << "resp sent\n";
         break;
     case RELEASE:
         msg.clock = *clock;
         msg.spot.spotId =spotId;
         msg.spot.wineAmount = amount;
-        for (int i = 0; i < size; i++) {
+        for (int i = lowerlimit; i < upperlimit; i++) {
             if(i != src){
                 MPI_Send( &msg , sizeof(msg) , MPI_BYTE , i , RELEASE , MPI_COMM_WORLD);
             }  
@@ -58,7 +74,6 @@ packet recv(int *clock) {
     message msg;
     MPI_Status status;
     MPI_Recv( &msg , sizeof(msg) , MPI_BYTE , MPI_ANY_SOURCE , MPI_ANY_TAG , MPI_COMM_WORLD , &status);
-    *clock = std::max(*clock, msg.clock) + 1;
 
     tmp.msg = msg;
     tmp.status.source = status.MPI_SOURCE;
@@ -101,13 +116,14 @@ int main(int argc, char *argv[]) {
     int lamportClock = 0;
     int ackCounter = 0;
     int requestFlag = 0;
+    int releaseFlag = 0;
 
     packet myPacket;
 
     //if (safeSpots != nullptr) std::cout << "Array created!\n";
     std::cout << "NumWIneMakers: " << numWineMakers << std::endl;
     int i = 0;
-    while(i < 6) {
+    while(i < 20) {
 
         //std::cout << "My rank is: " << rank << " from " << size << " safeSpotSize: " << safeSpotSize << std::endl;
 
@@ -117,7 +133,7 @@ int main(int argc, char *argv[]) {
         if (rank < numWineMakers) {
 
             if (selectedSpot != -1 && safeSpots[selectedSpot] == 0 && isSpotFree[selectedSpot] == 1 && requestFlag == 0) {
-                send(&lamportClock, REQUEST, selectedSpot, wineAmount, 0, rank);
+                send(&lamportClock, REQUEST, selectedSpot, wineAmount, 0, rank, 0, numWineMakers);
                 requestFlag = 1;
                 //safeSpots[selectedSpot] = 1;  ??? wut
             }
@@ -133,23 +149,43 @@ int main(int argc, char *argv[]) {
             case REQUEST:
                 std::cout << "  Winemaker " << myPacket.status.source << " wants place no. " << myPacket.msg.spot.spotId << std::endl;
                 if (myPacket.msg.spot.spotId != selectedSpot) {
-                    send(&lamportClock, ACK, myPacket.msg.spot.spotId, 0, myPacket.status.source, rank);
+                    lamportClock = std::max(lamportClock, myPacket.msg.clock) + 1;
+                    send(&lamportClock, ACK, myPacket.msg.spot.spotId, 0, myPacket.status.source, rank, 0, 0);
                     isSpotFree[myPacket.msg.spot.spotId] = 0;
                     lamportClock++;
                 } 
+                else{
+                    int leader = compareClocks(&lamportClock, &myPacket.msg.clock, rank, myPacket.status.source);
+                    lamportClock = std::max(lamportClock, myPacket.msg.clock) + 1;
+                    //std::cout << "leader " << leader << "\n";
+                    if(leader == -1){
+                        std::cout << "Lost battle to winemaker " << myPacket.status.source << std::endl;
+                        send(&lamportClock, RESPONSE, myPacket.msg.spot.spotId, 0, myPacket.status.source, rank, 0, 0);
+                        isSpotFree[myPacket.msg.spot.spotId] = 0;
+                        lamportClock++;
+                        ackCounter = 0;
+                        selectedSpot = -1;
+                        requestFlag = 0;
+                    } else {
+                        std::cout << "Won battle; requesting ACK from " << myPacket.status.source << std::endl;
+                    }
+                }
                 // TODO: rywalizacja o to samo miejsce
 
                 break;
             case ACK:
-                if (myPacket.msg.spot.spotId == selectedSpot) ackCounter++;
+                lamportClock = std::max(lamportClock, myPacket.msg.clock) + 1;
+                if (myPacket.msg.spot.spotId == selectedSpot) {ackCounter++; lamportClock++;}
                 std::cout << "  Got ACK from " << myPacket.status.source << " regarding spot " << myPacket.msg.spot.spotId 
                             << ". Current ACKs: " << ackCounter << std::endl;
                 break;
             case RESPONSE:
-                /* code */
+                lamportClock = std::max(lamportClock, myPacket.msg.clock) + 1;
+                std::cout << " Response from " << myPacket.status.source << "\n";
                 break;
             case RELEASE:
-                if (myPacket.msg.spot.wineAmount > 0) {
+                lamportClock = std::max(lamportClock, myPacket.msg.clock) + 1;
+                if (myPacket.msg.spot.wineAmount > 0 ) {
                     isSpotFree[myPacket.msg.spot.spotId] = 0;
                     safeSpots[myPacket.msg.spot.spotId] = myPacket.msg.spot.wineAmount;
                     lamportClock+=2;
@@ -160,7 +196,6 @@ int main(int argc, char *argv[]) {
                     } else {
                         std::cout << "      Student " << myPacket.status.source << " bought wine from spot " << myPacket.msg.spot.spotId << std::endl; 
                     }
-                    
                 } else {
                     isSpotFree[myPacket.msg.spot.spotId] = 1;
                     safeSpots[myPacket.msg.spot.spotId] = 0;
@@ -172,14 +207,16 @@ int main(int argc, char *argv[]) {
                 break;
             }
 
-            if (ackCounter == numWineMakers -1 ) {
-                send(&lamportClock, RELEASE, selectedSpot, wineAmount, 0, rank);
+            if (ackCounter == numWineMakers -1 && releaseFlag == 0) {
+                send(&lamportClock, RELEASE, selectedSpot, wineAmount, 0, rank, 0, size);
+                releaseFlag = 1;
                 safeSpots[selectedSpot] = wineAmount;
                 lamportClock++;
                 std::cout << "  Going to spot " << selectedSpot << " with " << wineAmount << " wine units.\n";
             }
 
-            std::cout << "  clock: " << lamportClock << std::endl;
+            std::cout << "P  " << rank << " status: " << lamportClock << "clock " << selectedSpot << "spot " 
+                        <<  std::endl;
             
         } else {
             // std::cout << "I'm a student! OwO I chose " << selectedSpot << std::endl;
